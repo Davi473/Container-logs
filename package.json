@@ -1,0 +1,17 @@
+{
+  "name": "container-log-monitor",
+  "version": "1.0.0",
+  "description": "Web dashboard to monitor logs from all your Docker containers in real time",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "docker": "docker compose up --build"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "dockerode": "^4.0.2",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}

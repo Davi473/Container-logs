@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Control Tower — Observabilidade &amp; Terminais Docker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="tower-bar">
+  <div class="tower-bar__left">
+    <button id="sidebarToggle" class="icon-btn tower-bar__toggle" aria-label="Alternar barra lateral" title="Alternar manifesto (Ctrl+B)">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+    </button>
+
+    <div class="tower-bar__brand">
+      <div class="tower-bar__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+      </div>
+      <div class="tower-bar__titles">
+        <div class="tower-bar__title-row">
+          <h1>CONTROL TOWER</h1>
+          <span id="hostBadge" class="host-badge" hidden>docker</span>
+        </div>
+        <span class="tower-bar__sub">Live Container Telemetry, Logs &amp; Interactive Shell</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tower-bar__center">
+    <div class="tower-bar__search">
+      <svg class="tower-bar__search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="containerSearch" type="text" placeholder="Filtrar containers, imagens, portas ou stacks…" autocomplete="off" />
+      <kbd id="searchKbdHint" class="kbd-hint" title="Pressione / para buscar">/</kbd>
+      <button id="searchClear" class="tower-bar__search-clear" hidden aria-label="Limpar busca" title="Limpar (Esc)">
+        <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <button id="cmdPaletteBtn" class="cmd-trigger" type="button" title="Abrir Paleta de Comandos (Ctrl+K)">
+      <svg viewBox="0 0 24 24"><path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/></svg>
+      <span>Comandos</span>
+      <kbd class="kbd-hint">Ctrl K</kbd>
+    </button>
+  </div>
+
+  <div class="tower-bar__right">
+    <div class="tower-bar__stats" id="towerStats">
+      <span class="stat-pill stat-pill--run" title="Containers em execução">
+        <span class="stat-pill__dot"></span>
+        <strong id="statRunning">0</strong> ativos
+      </span>
+      <span class="stat-pill stat-pill--off" title="Containers parados">
+        <strong id="statStopped">0</strong> parados
+      </span>
+      <span class="stat-pill stat-pill--metric" id="statTelemetryPill" title="Uso total de CPU e RAM dos containers ativos">
+        <span>CPU <strong id="statCpu">0.0%</strong></span>
+        <span class="stat-pill__sep">·</span>
+        <span>RAM <strong id="statMem">0 MB</strong></span>
+      </span>
+    </div>
+
+    <div class="tower-bar__actions">
+      <button id="themeToggle" class="icon-btn" type="button" aria-label="Alternar tema claro/escuro" title="Alternar tema claro/escuro">
+        <svg id="themeIconSun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg id="themeIconMoon" viewBox="0 0 24 24" hidden><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+
+      <button id="shortcutsBtn" class="icon-btn" type="button" aria-label="Atalhos de teclado" title="Atalhos de teclado (?)">
+        <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>
+      </button>
+
+      <div class="tower-bar__status" id="connPill">
+        <span id="connDot" class="status-dot status-dot--pending"></span>
+        <span id="connLabel">conectando…</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="deck" id="deck">
+
+  <aside class="manifest" id="manifest">
+    <div class="manifest__top">
+      <div class="manifest__head">
+        <div class="manifest__head-title">
+          <span>Containers</span>
+          <span id="manifestCount" class="manifest__count">0</span>
+        </div>
+        <div class="manifest__head-tools">
+          <button id="toggleAllGroupsBtn" class="icon-btn icon-btn--xs" type="button" title="Recolher/expandir todos os grupos">
+            <svg viewBox="0 0 24 24"><path d="M7 15l5 5 5-5M7 9l5-5 5 5"/></svg>
+          </button>
+          <button id="refreshContainersBtn" class="icon-btn icon-btn--xs" type="button" title="Atualizar lista de containers">
+            <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="manifest__filters" role="tablist" aria-label="Filtrar por estado">
+        <button class="filter-chip is-active" data-filter-state="all" type="button">
+          Todos <span id="chipCountAll" class="filter-chip__badge">0</span>
+        </button>
+        <button class="filter-chip" data-filter-state="running" type="button">
+          <span class="filter-chip__dot filter-chip__dot--run"></span>
+          Ativos <span id="chipCountRun" class="filter-chip__badge">0</span>
+        </button>
+        <button class="filter-chip" data-filter-state="stopped" type="button">
+          <span class="filter-chip__dot filter-chip__dot--off"></span>
+          Parados <span id="chipCountStop" class="filter-chip__badge">0</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="manifest__scroll">
+      <div id="crateSkeleton" class="crate-skeleton">
+        <div class="crate-skeleton__item"></div>
+        <div class="crate-skeleton__item"></div>
+        <div class="crate-skeleton__item"></div>
+      </div>
+
+      <div id="crateList" class="crate-list" hidden>
+        <!-- groups and crates rendered by app.js -->
+      </div>
+
+      <div id="manifestEmpty" class="manifest__empty" hidden>
+        <svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M3 7l2-4h14l2 4M8 12h8"/></svg>
+        <p id="manifestEmptyText">Nenhum container encontrado.</p>
+        <button id="resetFiltersBtn" class="btn btn--sm" type="button" hidden>Limpar filtros</button>
+      </div>
+    </div>
+  </aside>
+
+  <div id="sidebarResizer" class="sidebar-resizer" title="Arraste para ajustar a largura da barra lateral"></div>
+  <button id="sidebarScrim" class="sidebar-scrim" hidden aria-hidden="true"></button>
+
+  <main class="terminal">
+    <div class="layout-root" id="layoutRoot">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-state__card">
+          <div class="empty-state__icon-ring">
+            <svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+          </div>
+          <h2>Pronto para monitorar seus containers</h2>
+          <p class="empty-state__lead">
+            Selecione qualquer container à esquerda para inspecionar logs em tempo real, abrir um shell interativo ou analisar telemetria e variáveis.
+          </p>
+
+          <div class="empty-state__features">
+            <div class="empty-feature">
+              <div class="empty-feature__icon empty-feature__icon--log">
+                <svg viewBox="0 0 24 24"><path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/><path d="M8 12h8M8 16h5"/></svg>
+              </div>
+              <div>
+                <strong>Logs em Tempo Real</strong>
+                <span>Cores ANSI, filtro por nível, busca com regex, pausa com buffer e download `.log`.</span>
+              </div>
+            </div>
+
+            <div class="empty-feature">
+              <div class="empty-feature__icon empty-feature__icon--shell">
+                <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l4 3-4 3M13 15h4"/></svg>
+              </div>
+              <div>
+                <strong>Terminal Interativo (TTY)</strong>
+                <span>Sessões `bash`/`sh` completas via `xterm.js` com redimensionamento automático.</span>
+              </div>
+            </div>
+
+            <div class="empty-feature">
+              <div class="empty-feature__icon empty-feature__icon--inspect">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
+              </div>
+              <div>
+                <strong>Inspeção &amp; Telemetria</strong>
+                <span>CPU, RAM, rede, volumes, portas clicáveis e variáveis de ambiente com proteção de segredos.</span>
+              </div>
+            </div>
+
+            <div class="empty-feature">
+              <div class="empty-feature__icon empty-feature__icon--split">
+                <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></svg>
+              </div>
+              <div>
+                <strong>Workspace Multi-Painel</strong>
+                <span>Divida a tela na horizontal ou vertical com 1 clique ou arrastando abas para as bordas.</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="empty-state__cta">
+            <button id="quickStartLogsBtn" class="btn btn--primary" type="button">
+              <svg viewBox="0 0 24 24"><path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/><path d="M8 12h8M8 16h5"/></svg>
+              Abrir Logs do 1º Container Ativo
+            </button>
+            <button id="emptyOpenCmdBtn" class="btn" type="button">
+              <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+              Paleta de Comandos <kbd class="kbd-hint">Ctrl K</kbd>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<footer class="status-bar">
+  <div class="status-bar__left">
+    <span class="status-bar__item" id="statusEngine">
+      <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h.01M10 12h.01"/></svg>
+      <span>Docker Engine</span>
+    </span>
+    <span class="status-bar__sep">·</span>
+    <span class="status-bar__item status-bar__event" id="statusLastEvent">Aguardando eventos…</span>
+  </div>
+  <div class="status-bar__right">
+    <span class="status-bar__item" id="statusSessions">0 abas abertas</span>
+    <button id="equalizeSplitsBtn" class="status-bar__btn" type="button" hidden title="Igualar tamanho de todos os painéis divididos">
+      Igualar painéis
+    </button>
+    <button id="closeAllTabsBtn" class="status-bar__btn status-bar__btn--danger" type="button" hidden title="Fechar todas as abas abertas">
+      Fechar todas
+    </button>
+  </div>
+</footer>
+
+<!-- Command Palette Modal -->
+<div id="cmdModal" class="modal-backdrop" hidden>
+  <div class="cmd-palette" role="dialog" aria-modal="true" aria-label="Paleta de Comandos">
+    <div class="cmd-palette__header">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="cmdInput" type="text" placeholder="Digite um comando ou nome de container…" autocomplete="off" />
+      <kbd class="kbd-hint">Esc</kbd>
+    </div>
+    <div id="cmdList" class="cmd-palette__list"></div>
+    <div class="cmd-palette__footer">
+      <span><kbd>↑</kbd><kbd>↓</kbd> navegar</span>
+      <span><kbd>Enter</kbd> executar</span>
+      <span><kbd>Esc</kbd> fechar</span>
+    </div>
+  </div>
+</div>
+
+<!-- Confirmation Modal -->
+<div id="confirmModal" class="modal-backdrop" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <div class="modal-card__icon modal-card__icon--danger">
+      <svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9L2.7 18a1.5 1.5 0 0 0 1.3 2.2h16a1.5 1.5 0 0 0 1.3-2.2L13.7 3.9a1.5 1.5 0 0 0-2.6 0z"/></svg>
+    </div>
+    <h3 id="confirmTitle" class="modal-card__title">Confirmar remoção</h3>
+    <p id="confirmMessage" class="modal-card__desc"></p>
+    <div class="modal-card__actions">
+      <button id="confirmCancelBtn" class="btn" type="button">Cancelar</button>
+      <button id="confirmOkBtn" class="btn btn--danger-solid" type="button">Remover</button>
+    </div>
+  </div>
+</div>
+
+<!-- Keyboard Shortcuts Modal -->
+<div id="shortcutsModal" class="modal-backdrop" hidden>
+  <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
+    <div class="modal-card__top">
+      <h3 id="shortcutsTitle" class="modal-card__title">Atalhos de Teclado &amp; Dicas</h3>
+      <button id="shortcutsCloseBtn" class="icon-btn" type="button" aria-label="Fechar">
+        <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="shortcuts-grid">
+      <div class="shortcut-row"><kbd>Ctrl</kbd> + <kbd>K</kbd><span>Abrir Paleta de Comandos</span></div>
+      <div class="shortcut-row"><kbd>/</kbd><span>Focar busca de containers</span></div>
+      <div class="shortcut-row"><kbd>Ctrl</kbd> + <kbd>B</kbd><span>Mostrar / ocultar barra lateral</span></div>
+      <div class="shortcut-row"><kbd>Alt</kbd> + <kbd>W</kbd><span>Fechar aba ativa no painel focado</span></div>
+      <div class="shortcut-row"><kbd>?</kbd><span>Mostrar atalhos de teclado</span></div>
+      <div class="shortcut-row"><kbd>Esc</kbd><span>Fechar modal ou limpar foco</span></div>
+    </div>
+    <div class="modal-card__tip">
+      <strong>Dica de produtividade:</strong> Arraste qualquer aba para as bordas (esquerda, direita, topo ou base) de um painel ou use os botões de divisão na barra da aba para visualizar múltiplos containers lado a lado.
+    </div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

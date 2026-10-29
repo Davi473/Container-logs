@@ -1,0 +1,21 @@
+services:
+  log-monitor:
+    build: .
+    container_name: log-monitor
+    restart: unless-stopped
+    environment:
+      - PORT=80
+    expose:
+      - "80"
+    networks:
+      - default
+      - rede-proxy
+      
+    volumes:
+      # Read-only access to the Docker socket is all this app needs to
+      # list containers and stream their logs.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+networks:
+  rede-proxy:
+    external: true
