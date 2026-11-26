@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#07080c" />
   <title>Control Tower — Observabilidade &amp; Terminais Docker</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,7 +15,7 @@
 
 <header class="tower-bar">
   <div class="tower-bar__left">
-    <button id="sidebarToggle" class="icon-btn tower-bar__toggle" aria-label="Alternar barra lateral" title="Alternar manifesto (Ctrl+B)">
+    <button id="sidebarToggle" class="icon-btn tower-bar__toggle" aria-label="Alternar barra lateral" title="Alternar barra lateral (Ctrl+B)">
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
     </button>
 
@@ -27,9 +28,20 @@
           <h1>CONTROL TOWER</h1>
           <span id="hostBadge" class="host-badge" hidden>docker</span>
         </div>
-        <span class="tower-bar__sub">Live Container Telemetry, Logs &amp; Interactive Shell</span>
       </div>
     </div>
+
+    <nav class="view-switcher" aria-label="Modo de visualização">
+      <button id="navOverviewBtn" class="view-switcher__btn is-active" type="button" title="Painel de Visão Geral">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+        <span>Visão Geral</span>
+      </button>
+      <button id="navWorkspaceBtn" class="view-switcher__btn" type="button" title="Workspace de Logs &amp; Terminais">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l4 3-4 3M13 15h4"/></svg>
+        <span>Workspace</span>
+        <span id="workspaceTabBadge" class="view-switcher__badge" hidden>0</span>
+      </button>
+    </nav>
   </div>
 
   <div class="tower-bar__center">
@@ -44,7 +56,6 @@
 
     <button id="cmdPaletteBtn" class="cmd-trigger" type="button" title="Abrir Paleta de Comandos (Ctrl+K)">
       <svg viewBox="0 0 24 24"><path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/></svg>
-      <span>Comandos</span>
       <kbd class="kbd-hint">Ctrl K</kbd>
     </button>
   </div>
@@ -53,10 +64,10 @@
     <div class="tower-bar__stats" id="towerStats">
       <span class="stat-pill stat-pill--run" title="Containers em execução">
         <span class="stat-pill__dot"></span>
-        <strong id="statRunning">0</strong> ativos
+        <strong id="statRunning">0</strong>/<span id="statTotalTop">0</span>
       </span>
-      <span class="stat-pill stat-pill--off" title="Containers parados">
-        <strong id="statStopped">0</strong> parados
+      <span class="stat-pill stat-pill--off" hidden>
+        <strong id="statStopped">0</strong>
       </span>
       <span class="stat-pill stat-pill--metric" id="statTelemetryPill" title="Uso total de CPU e RAM dos containers ativos">
         <span>CPU <strong id="statCpu">0.0%</strong></span>
@@ -93,6 +104,9 @@
           <span id="manifestCount" class="manifest__count">0</span>
         </div>
         <div class="manifest__head-tools">
+          <button id="densityToggleBtn" class="icon-btn icon-btn--xs" type="button" title="Alternar visualização compacta/detalhada">
+            <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
           <button id="toggleAllGroupsBtn" class="icon-btn icon-btn--xs" type="button" title="Recolher/expandir todos os grupos">
             <svg viewBox="0 0 24 24"><path d="M7 15l5 5 5-5M7 9l5-5 5 5"/></svg>
           </button>
@@ -122,6 +136,7 @@
         <div class="crate-skeleton__item"></div>
         <div class="crate-skeleton__item"></div>
         <div class="crate-skeleton__item"></div>
+        <div class="crate-skeleton__item"></div>
       </div>
 
       <div id="crateList" class="crate-list" hidden>
@@ -140,68 +155,114 @@
   <button id="sidebarScrim" class="sidebar-scrim" hidden aria-hidden="true"></button>
 
   <main class="terminal">
-    <div class="layout-root" id="layoutRoot">
-      <div class="empty-state" id="emptyState">
-        <div class="empty-state__card">
-          <div class="empty-state__icon-ring">
-            <svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+    <!-- Live Mission Control Overview -->
+    <section class="overview" id="overviewView">
+      <div class="overview__inner">
+        <div class="overview__hero">
+          <div class="overview__hero-left">
+            <div class="overview__eyebrow">
+              <span class="overview__live-dot"></span>
+              <span id="overviewHostSub">Docker Engine · Monitoramento em tempo real</span>
+            </div>
+            <h2>Visão Geral da Frota</h2>
           </div>
-          <h2>Pronto para monitorar seus containers</h2>
-          <p class="empty-state__lead">
-            Selecione qualquer container à esquerda para inspecionar logs em tempo real, abrir um shell interativo ou analisar telemetria e variáveis.
-          </p>
-
-          <div class="empty-state__features">
-            <div class="empty-feature">
-              <div class="empty-feature__icon empty-feature__icon--log">
-                <svg viewBox="0 0 24 24"><path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/><path d="M8 12h8M8 16h5"/></svg>
-              </div>
-              <div>
-                <strong>Logs em Tempo Real</strong>
-                <span>Cores ANSI, filtro por nível, busca com regex, pausa com buffer e download `.log`.</span>
-              </div>
-            </div>
-
-            <div class="empty-feature">
-              <div class="empty-feature__icon empty-feature__icon--shell">
-                <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l4 3-4 3M13 15h4"/></svg>
-              </div>
-              <div>
-                <strong>Terminal Interativo (TTY)</strong>
-                <span>Sessões `bash`/`sh` completas via `xterm.js` com redimensionamento automático.</span>
-              </div>
-            </div>
-
-            <div class="empty-feature">
-              <div class="empty-feature__icon empty-feature__icon--inspect">
-                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
-              </div>
-              <div>
-                <strong>Inspeção &amp; Telemetria</strong>
-                <span>CPU, RAM, rede, volumes, portas clicáveis e variáveis de ambiente com proteção de segredos.</span>
-              </div>
-            </div>
-
-            <div class="empty-feature">
-              <div class="empty-feature__icon empty-feature__icon--split">
-                <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></svg>
-              </div>
-              <div>
-                <strong>Workspace Multi-Painel</strong>
-                <span>Divida a tela na horizontal ou vertical com 1 clique ou arrastando abas para as bordas.</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="empty-state__cta">
+          <div class="overview__hero-actions">
             <button id="quickStartLogsBtn" class="btn btn--primary" type="button">
               <svg viewBox="0 0 24 24"><path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/><path d="M8 12h8M8 16h5"/></svg>
-              Abrir Logs do 1º Container Ativo
+              Logs do 1º Ativo
             </button>
             <button id="emptyOpenCmdBtn" class="btn" type="button">
               <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-              Paleta de Comandos <kbd class="kbd-hint">Ctrl K</kbd>
+              Comandos <kbd class="kbd-hint">Ctrl K</kbd>
             </button>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi-card kpi-card--run">
+            <div class="kpi-card__top">
+              <span class="kpi-card__label">Containers Ativos</span>
+              <span class="kpi-card__icon kpi-card__icon--run">
+                <svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+              </span>
+            </div>
+            <div class="kpi-card__value"><span id="kpiRunning">0</span> <small>/ <span id="kpiTotal">0</span></small></div>
+            <div class="kpi-card__bar"><div id="kpiRunningBar" class="kpi-card__bar-fill kpi-card__bar-fill--run" style="width:0%"></div></div>
+            <span class="kpi-card__sub" id="kpiRunningSub">0 parados</span>
+          </div>
+
+          <div class="kpi-card kpi-card--cpu">
+            <div class="kpi-card__top">
+              <span class="kpi-card__label">Uso Total de CPU</span>
+              <span class="kpi-card__icon kpi-card__icon--cpu">
+                <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
+              </span>
+            </div>
+            <div class="kpi-card__value" id="kpiCpu">0.0%</div>
+            <div class="kpi-card__bar"><div id="kpiCpuBar" class="kpi-card__bar-fill kpi-card__bar-fill--cpu" style="width:0%"></div></div>
+            <span class="kpi-card__sub" id="kpiCpuSub">Host: — CPUs</span>
+          </div>
+
+          <div class="kpi-card kpi-card--mem">
+            <div class="kpi-card__top">
+              <span class="kpi-card__label">Memória Alocada</span>
+              <span class="kpi-card__icon kpi-card__icon--mem">
+                <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h.01M10 12h.01M14 12h4"/></svg>
+              </span>
+            </div>
+            <div class="kpi-card__value" id="kpiMem">0 B</div>
+            <div class="kpi-card__bar"><div id="kpiMemBar" class="kpi-card__bar-fill kpi-card__bar-fill--mem" style="width:0%"></div></div>
+            <span class="kpi-card__sub" id="kpiMemSub">Host: —</span>
+          </div>
+
+          <div class="kpi-card kpi-card--stack">
+            <div class="kpi-card__top">
+              <span class="kpi-card__label">Stacks &amp; Imagens</span>
+              <span class="kpi-card__icon kpi-card__icon--stack">
+                <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5M3 8l9 5 9-5"/></svg>
+              </span>
+            </div>
+            <div class="kpi-card__value"><span id="kpiStacks">0</span> <small>stacks</small></div>
+            <div class="kpi-card__bar"><div class="kpi-card__bar-fill kpi-card__bar-fill--stack" style="width:100%"></div></div>
+            <span class="kpi-card__sub" id="kpiImagesSub">— imagens locais</span>
+          </div>
+        </div>
+
+        <div class="overview__section">
+          <div class="overview__section-head">
+            <h3>Containers no Host</h3>
+            <span class="overview__section-hint">Clique em qualquer card para abrir logs em tempo real, shell ou inspeção</span>
+          </div>
+          <div id="overviewFleetGrid" class="fleet-grid">
+            <!-- Live container cards rendered by app.js -->
+          </div>
+        </div>
+
+        <div class="overview__section">
+          <div class="overview__section-head">
+            <h3>Atividade Recente do Daemon</h3>
+            <span class="overview__section-hint">Eventos em tempo real via Docker socket</span>
+          </div>
+          <div id="overviewEventsList" class="events-feed">
+            <div class="events-feed__empty">Aguardando eventos do Docker Daemon…</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Multi-Pane Split Workspace -->
+    <div class="layout-root" id="layoutRoot" hidden>
+      <div class="empty-state" id="emptyState">
+        <div class="empty-state__card">
+          <div class="empty-state__icon-ring">
+            <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l4 3-4 3M13 15h4"/></svg>
+          </div>
+          <h2>Nenhuma aba aberta no Workspace</h2>
+          <p class="empty-state__lead">
+            Selecione um container na barra lateral ou volte para a Visão Geral para abrir logs, terminais interativos ou inspeção.
+          </p>
+          <div class="empty-state__cta">
+            <button id="backToOverviewBtn" class="btn btn--primary" type="button">Ir para Visão Geral</button>
           </div>
         </div>
       </div>

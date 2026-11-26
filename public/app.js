@@ -7,6 +7,10 @@
   const state = {
     theme: localStorage.getItem('ct_theme') || 'dark',
     sidebarWidth: Number(localStorage.getItem('ct_sidebar_w')) || 330,
+    compactSidebar: localStorage.getItem('ct_compact') === '1',
+    activeView: 'overview',     // 'overview' | 'workspace'
+    systemInfo: null,
+    recentEvents: [],
     containers: new Map(),      // id -> shaped container
     stats: new Map(),           // id -> { cpuPercent, memUsage, memLimit, memPercent, netRx, netTx, pids }
     busyContainers: new Set(),  // containerIds with lifecycle action in flight
@@ -37,12 +41,12 @@
   state.focusedPaneId = rootPaneId;
 
   const AVATAR_PALETTE = [
-    'linear-gradient(135deg,#2563eb,#0ea5e9)',
-    'linear-gradient(135deg,#0d9488,#14b8a6)',
-    'linear-gradient(135deg,#16a34a,#22c55e)',
-    'linear-gradient(135deg,#d97706,#f59e0b)',
-    'linear-gradient(135deg,#0891b2,#06b6d4)',
-    'linear-gradient(135deg,#4f46e5,#3b82f6)',
+    'linear-gradient(135deg,#4f46e5,#6366f1)',
+    'linear-gradient(135deg,#0d9488,#2dd4bf)',
+    'linear-gradient(135deg,#059669,#34d399)',
+    'linear-gradient(135deg,#d97706,#fbbf24)',
+    'linear-gradient(135deg,#7c3aed,#a78bfa)',
+    'linear-gradient(135deg,#e11d48,#fb7185)',
   ];
   function avatarGradient(id) {
     let h = 0;
@@ -93,9 +97,32 @@
   const layoutRoot = document.getElementById('layoutRoot');
   const emptyState = document.getElementById('emptyState');
   const statRunning = document.getElementById('statRunning');
+  const statTotalTop = document.getElementById('statTotalTop');
   const statStopped = document.getElementById('statStopped');
   const statCpu = document.getElementById('statCpu');
   const statMem = document.getElementById('statMem');
+  const manifestEl = document.getElementById('manifest');
+  const densityToggleBtn = document.getElementById('densityToggleBtn');
+  const navOverviewBtn = document.getElementById('navOverviewBtn');
+  const navWorkspaceBtn = document.getElementById('navWorkspaceBtn');
+  const workspaceTabBadge = document.getElementById('workspaceTabBadge');
+  const backToOverviewBtn = document.getElementById('backToOverviewBtn');
+  const overviewView = document.getElementById('overviewView');
+  const overviewHostSub = document.getElementById('overviewHostSub');
+  const overviewFleetGrid = document.getElementById('overviewFleetGrid');
+  const overviewEventsList = document.getElementById('overviewEventsList');
+  const kpiRunning = document.getElementById('kpiRunning');
+  const kpiTotal = document.getElementById('kpiTotal');
+  const kpiRunningBar = document.getElementById('kpiRunningBar');
+  const kpiRunningSub = document.getElementById('kpiRunningSub');
+  const kpiCpu = document.getElementById('kpiCpu');
+  const kpiCpuBar = document.getElementById('kpiCpuBar');
+  const kpiCpuSub = document.getElementById('kpiCpuSub');
+  const kpiMem = document.getElementById('kpiMem');
+  const kpiMemBar = document.getElementById('kpiMemBar');
+  const kpiMemSub = document.getElementById('kpiMemSub');
+  const kpiStacks = document.getElementById('kpiStacks');
+  const kpiImagesSub = document.getElementById('kpiImagesSub');
   const searchInput = document.getElementById('containerSearch');
   const searchClear = document.getElementById('searchClear');
   const searchKbdHint = document.getElementById('searchKbdHint');
@@ -152,39 +179,70 @@
   function getXtermTheme() {
     if (state.theme === 'light') {
       return {
-        background: '#fbfcfe',
+        background: '#fafbfd',
         foreground: '#0f172a',
-        cursor: '#0d9488',
-        selectionBackground: 'rgba(37, 99, 235, 0.22)',
+        cursor: '#4f46e5',
+        selectionBackground: 'rgba(79, 70, 229, 0.2)',
         black: '#1e293b',
-        red: '#dc2626',
-        green: '#16a34a',
-        yellow: '#ca8a04',
-        blue: '#2563eb',
+        red: '#e11d48',
+        green: '#059669',
+        yellow: '#b45309',
+        blue: '#4f46e5',
         magenta: '#9333ea',
-        cyan: '#0891b2',
+        cyan: '#0d9488',
         white: '#f1f5f9',
       };
     }
     return {
-      background: '#0a0e17',
-      foreground: '#e2e8f0',
-      cursor: '#14b8a6',
-      selectionBackground: 'rgba(59, 130, 246, 0.32)',
-      black: '#1e293b',
-      red: '#f87171',
+      background: '#0a0c10',
+      foreground: '#e5e7eb',
+      cursor: '#2dd4bf',
+      selectionBackground: 'rgba(99, 102, 241, 0.34)',
+      black: '#181c27',
+      red: '#fb7185',
       green: '#4ade80',
-      yellow: '#facc15',
-      blue: '#60a5fa',
+      yellow: '#fbbf24',
+      blue: '#818cf8',
       magenta: '#c084fc',
-      cyan: '#22d3ee',
-      white: '#f8fafc',
+      cyan: '#2dd4bf',
+      white: '#f4f5f7',
     };
   }
 
   applyTheme(state.theme);
   themeToggle.addEventListener('click', () => {
     applyTheme(state.theme === 'dark' ? 'light' : 'dark');
+  });
+
+  // ---- View Switcher (Overview vs. Workspace) & Sidebar Density -----------
+  function setActiveView(view) {
+    state.activeView = view === 'workspace' ? 'workspace' : 'overview';
+    const isOverview = state.activeView === 'overview';
+    overviewView.hidden = !isOverview;
+    layoutRoot.hidden = isOverview;
+    navOverviewBtn.classList.toggle('is-active', isOverview);
+    navWorkspaceBtn.classList.toggle('is-active', !isOverview);
+    if (!isOverview) {
+      requestAnimationFrame(refitVisibleTerminals);
+    }
+  }
+  navOverviewBtn.addEventListener('click', () => setActiveView('overview'));
+  navWorkspaceBtn.addEventListener('click', () => setActiveView('workspace'));
+  if (backToOverviewBtn) backToOverviewBtn.addEventListener('click', () => setActiveView('overview'));
+  setActiveView('overview');
+
+  function applySidebarDensity() {
+    manifestEl.classList.toggle('is-compact', state.compactSidebar);
+    densityToggleBtn.classList.toggle('btn--active', state.compactSidebar);
+    densityToggleBtn.title = state.compactSidebar
+      ? 'Modo compacto ativo (clique para detalhado)'
+      : 'Alternar para visualização compacta';
+  }
+  applySidebarDensity();
+  densityToggleBtn.addEventListener('click', () => {
+    state.compactSidebar = !state.compactSidebar;
+    localStorage.setItem('ct_compact', state.compactSidebar ? '1' : '0');
+    applySidebarDensity();
   });
 
   // ---- Sidebar Resize & Collapse ------------------------------------------
@@ -576,8 +634,13 @@
     socket.emit('system:info', (res) => {
       if (!res || !res.ok || !res.info) return;
       const info = res.info;
+      state.systemInfo = info;
       hostBadge.textContent = `${info.hostname} · v${info.serverVersion}`;
       hostBadge.hidden = false;
+      overviewHostSub.textContent = `${info.hostname} · Docker ${info.serverVersion} · ${info.os}`;
+      kpiCpuSub.textContent = `Host: ${info.cpus || '—'} CPUs disponíveis`;
+      kpiMemSub.textContent = `Host: ${formatBytes(info.memTotal)} total`;
+      kpiImagesSub.textContent = `${info.images || 0} imagens locais`;
       statusEngine.innerHTML = `
         <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h.01M10 12h.01"/></svg>
         <span>Docker ${escapeHtml(info.serverVersion)} · ${escapeHtml(info.os)} (${info.cpus} CPUs, ${formatBytes(info.memTotal)})</span>
@@ -589,7 +652,32 @@
     if (!ev) return;
     const time = ev.ts ? ev.ts.slice(11, 19) : '';
     statusLastEvent.textContent = `[${time}] ${ev.name}: ${ev.action}`;
+    state.recentEvents.unshift({ time, name: ev.name, action: ev.action });
+    if (state.recentEvents.length > 12) state.recentEvents.pop();
+    renderOverviewEvents();
   });
+
+  function renderOverviewEvents() {
+    if (!overviewEventsList) return;
+    if (state.recentEvents.length === 0) {
+      overviewEventsList.innerHTML = '<div class="events-feed__empty">Aguardando eventos do Docker Daemon…</div>';
+      return;
+    }
+    overviewEventsList.innerHTML = state.recentEvents.map((ev) => {
+      const act = String(ev.action || '').toLowerCase();
+      let badgeMod = '';
+      if (act === 'start' || act === 'unpause' || act.includes('healthy')) badgeMod = ' event-row__badge--run';
+      else if (act === 'die' || act === 'kill' || act === 'destroy' || act.includes('unhealthy')) badgeMod = ' event-row__badge--err';
+      else if (act === 'stop' || act === 'pause' || act === 'restart') badgeMod = ' event-row__badge--warn';
+      return `
+        <div class="event-row">
+          <span class="event-row__ts">${escapeHtml(ev.time)}</span>
+          <span class="event-row__badge${badgeMod}">${escapeHtml(ev.action)}</span>
+          <span class="event-row__name">${escapeHtml(ev.name)}</span>
+        </div>
+      `;
+    }).join('');
+  }
 
   socket.on('containers:update', (list) => {
     list.forEach((c) => state.containers.set(c.id, c));
@@ -615,6 +703,20 @@
     });
     statCpu.textContent = `${totalCpu.toFixed(1)}%`;
     statMem.textContent = formatBytes(totalMem);
+
+    // Update Overview KPIs
+    kpiCpu.textContent = `${totalCpu.toFixed(1)}%`;
+    const cpuCap = (state.systemInfo?.cpus || 1) * 100;
+    kpiCpuBar.style.width = `${Math.min(100, (totalCpu / cpuCap) * 100)}%`;
+
+    kpiMem.textContent = formatBytes(totalMem);
+    const memTotal = state.systemInfo?.memTotal || 0;
+    if (memTotal > 0) {
+      const memRatio = Math.min(100, (totalMem / memTotal) * 100);
+      kpiMemBar.style.width = `${memRatio}%`;
+      kpiMemSub.textContent = `${memRatio.toFixed(1)}% de ${formatBytes(memTotal)}`;
+    }
+
     updateCrateTelemetryInPlace();
     updateInspectTelemetryInPlace();
   });
@@ -664,11 +766,21 @@
     const stoppedCount = allContainers.length - runningCount;
 
     statRunning.textContent = runningCount;
+    if (statTotalTop) statTotalTop.textContent = allContainers.length;
     statStopped.textContent = stoppedCount;
     manifestCount.textContent = allContainers.length;
     chipCountAll.textContent = allContainers.length;
     chipCountRun.textContent = runningCount;
     chipCountStop.textContent = stoppedCount;
+
+    // Sync Overview KPIs & Fleet Grid
+    kpiRunning.textContent = runningCount;
+    kpiTotal.textContent = allContainers.length;
+    kpiRunningSub.textContent = `${stoppedCount} parado${stoppedCount === 1 ? '' : 's'}`;
+    kpiRunningBar.style.width = allContainers.length > 0 ? `${(runningCount / allContainers.length) * 100}%` : '0%';
+    const stackSet = new Set(allContainers.map((c) => c.composeProject).filter(Boolean));
+    kpiStacks.textContent = stackSet.size;
+    renderOverviewFleet(allContainers);
 
     const items = allContainers
       .filter(matchesContainerQuery)
@@ -865,11 +977,14 @@
       </div>
     `;
 
-    el.querySelector('[data-action="logs"]').addEventListener('click', () => {
+    const openOrFocusLogs = () => {
       const existing = findSession('log', c.id);
       if (existing) switchTab(existing);
       else openLogTab(c.id);
-    });
+    };
+
+    el.querySelector('.crate__top').addEventListener('click', openOrFocusLogs);
+    el.querySelector('[data-action="logs"]').addEventListener('click', openOrFocusLogs);
 
     el.querySelector('[data-action="shell"]').addEventListener('click', () => {
       if (running) openTerminalTab(c.id);
@@ -891,6 +1006,97 @@
     });
 
     return el;
+  }
+
+  function renderOverviewFleet(allContainers) {
+    if (!overviewFleetGrid) return;
+    const sorted = [...allContainers].sort(
+      (a, b) => (a.state === 'running' ? -1 : 1) - (b.state === 'running' ? -1 : 1) || a.name.localeCompare(b.name)
+    );
+    overviewFleetGrid.innerHTML = '';
+    if (sorted.length === 0) {
+      overviewFleetGrid.innerHTML = '<div class="events-feed__empty">Nenhum container encontrado neste host Docker.</div>';
+      return;
+    }
+
+    sorted.forEach((c) => {
+      const running = c.state === 'running';
+      const st = state.stats.get(c.id);
+      const cpuPct = st ? st.cpuPercent : 0;
+      const memPct = st ? st.memPercent : 0;
+      const memLabel = st ? formatBytes(st.memUsage) : '—';
+      const initial = c.name.replace(/[^a-z0-9]/gi, '')[0]?.toUpperCase() || '?';
+
+      const portsHtml = (c.portBindings || []).slice(0, 3).map((p) => {
+        if (p.publicPort) {
+          const href = `http://${window.location.hostname}:${p.publicPort}`;
+          return `<a class="crate__tag crate__tag--port" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${escapeHtml(p.publicPort)}→${escapeHtml(p.privatePort)} ${ICON.external}</a>`;
+        }
+        return `<span class="crate__tag">${escapeHtml(p.privatePort)}/${escapeHtml(p.type)}</span>`;
+      }).join('');
+
+      const card = document.createElement('div');
+      card.className = 'fleet-card';
+      card.innerHTML = `
+        <div class="fleet-card__top">
+          <span class="crate__avatar" style="background:${avatarGradient(c.id)}">${initial}<span class="crate__led" style="border-color:var(--bg-surface);background:${running ? 'var(--state-run)' : 'var(--state-off)'}"></span></span>
+          <div class="fleet-card__info">
+            <div class="fleet-card__name" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</div>
+            <div class="fleet-card__image" title="${escapeHtml(c.image)}">${escapeHtml(c.image)}</div>
+          </div>
+          <span class="crate__badge ${badgeClass(c.state)}">${escapeHtml(c.state)}</span>
+        </div>
+
+        <div class="fleet-card__metrics" data-telemetry-for="${escapeHtml(c.id)}">
+          <div class="telemetry-item">
+            <div class="telemetry-item__top">
+              <span>CPU</span>
+              <span class="telemetry-item__val" data-tel="cpu-val">${running ? `${cpuPct.toFixed(1)}%` : '—'}</span>
+            </div>
+            <div class="telemetry-bar">
+              <div class="telemetry-bar__fill ${cpuPct > 85 ? 'is-crit' : cpuPct > 60 ? 'is-high' : ''}" data-tel="cpu-bar" style="width:${running ? Math.min(100, cpuPct) : 0}%"></div>
+            </div>
+          </div>
+          <div class="telemetry-item">
+            <div class="telemetry-item__top">
+              <span>RAM</span>
+              <span class="telemetry-item__val" data-tel="mem-val">${running ? memLabel : '—'}</span>
+            </div>
+            <div class="telemetry-bar">
+              <div class="telemetry-bar__fill telemetry-bar__fill--mem ${memPct > 85 ? 'is-crit' : memPct > 65 ? 'is-high' : ''}" data-tel="mem-bar" style="width:${running ? Math.min(100, memPct) : 0}%"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fleet-card__ports">
+          ${c.composeProject ? `<span class="crate__tag">${escapeHtml(c.composeProject)}</span>` : ''}
+          ${portsHtml || `<span class="crate__tag">${escapeHtml(c.status)}</span>`}
+        </div>
+
+        <div class="fleet-card__actions">
+          <button class="crate__action" data-action="logs" type="button">${ICON.logs} Logs</button>
+          <button class="crate__action" data-action="shell" type="button" ${running ? '' : 'disabled'}>${ICON.shell} Shell</button>
+          <button class="crate__action" data-action="inspect" type="button">${ICON.inspect} Info</button>
+        </div>
+      `;
+
+      const openLogs = () => {
+        const existing = findSession('log', c.id);
+        if (existing) switchTab(existing);
+        else openLogTab(c.id);
+      };
+      card.addEventListener('click', openLogs);
+      card.querySelector('[data-action="logs"]').addEventListener('click', (e) => { e.stopPropagation(); openLogs(); });
+      card.querySelector('[data-action="shell"]').addEventListener('click', (e) => { e.stopPropagation(); if (running) openTerminalTab(c.id); });
+      card.querySelector('[data-action="inspect"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const existing = findSession('inspect', c.id);
+        if (existing) switchTab(existing);
+        else openInspectTab(c.id);
+      });
+
+      overviewFleetGrid.appendChild(card);
+    });
   }
 
   function updateCrateTelemetryInPlace() {
@@ -1182,6 +1388,7 @@
     if (!pane) return;
     pane.activeSessionId = sessionId;
     state.focusedPaneId = entry.paneId;
+    setActiveView('workspace');
     renderLayout();
   }
 
@@ -1199,6 +1406,14 @@
     return 'center';
   }
 
+  const DROP_ZONE_LABELS = {
+    left: 'Dividir à esquerda',
+    right: 'Dividir à direita',
+    top: 'Dividir acima',
+    bottom: 'Dividir abaixo',
+    center: 'Mover para este painel',
+  };
+
   function showDropOverlay(contentEl, zone) {
     let overlay = contentEl.querySelector('.drop-overlay');
     if (!overlay) {
@@ -1207,6 +1422,7 @@
       contentEl.appendChild(overlay);
     }
     overlay.dataset.zone = zone;
+    overlay.dataset.label = DROP_ZONE_LABELS[zone] || '';
     overlay.hidden = false;
   }
 
@@ -1397,6 +1613,10 @@
 
     equalizeSplitsBtn.hidden = state.panes.size <= 1;
     closeAllTabsBtn.hidden = total === 0;
+    if (workspaceTabBadge) {
+      workspaceTabBadge.textContent = String(total);
+      workspaceTabBadge.hidden = total === 0;
+    }
   }
 
   function renderLayout() {
@@ -1411,6 +1631,7 @@
     if (state.panels.size === 0) {
       layoutRoot.appendChild(emptyState);
       emptyState.classList.remove('is-hidden');
+      setActiveView('overview');
       return;
     }
 
@@ -1493,9 +1714,9 @@
 
         <div class="panel__levels" role="group" aria-label="Filtrar nível de log">
           <button class="level-pill is-active" data-level="all" type="button">Todos</button>
-          <button class="level-pill" data-level="error" type="button">Erros</button>
-          <button class="level-pill" data-level="warn" type="button">Avisos</button>
-          <button class="level-pill" data-level="stderr" type="button">stderr</button>
+          <button class="level-pill" data-level="error" type="button">Erros <span class="level-pill__count" data-count="error"></span></button>
+          <button class="level-pill" data-level="warn" type="button">Avisos <span class="level-pill__count" data-count="warn"></span></button>
+          <button class="level-pill" data-level="stderr" type="button">stderr <span class="level-pill__count" data-count="stderr"></span></button>
         </div>
 
         <div class="panel__controls">
@@ -1508,8 +1729,10 @@
             </div>
           </div>
 
+          <span class="panel__sep" aria-hidden="true"></span>
           <button data-act="wrap" class="btn btn--sm btn--active" type="button" title="Alternar quebra de linha automática">${ICON.wrap} Wrap</button>
           <button data-act="timestamps" class="btn btn--sm btn--active" type="button" title="Mostrar/ocultar timestamps">${ICON.clock} Hora</button>
+          <span class="panel__sep" aria-hidden="true"></span>
           <button data-act="pause" class="btn btn--sm" type="button" title="Pausar/retomar recebimento">${ICON.pause} Pausar</button>
           <button data-act="autoscroll" class="btn btn--sm btn--active" type="button" title="Rolagem automática">${ICON.autoscroll} Auto</button>
           <button data-act="copy" class="btn btn--sm" type="button" title="Copiar logs filtrados">${ICON.copy}</button>
@@ -1536,6 +1759,12 @@
       logViewEl,
       jumpBtn,
       matchCountEl,
+      countEls: {
+        error: panelEl.querySelector('[data-count="error"]'),
+        warn: panelEl.querySelector('[data-count="warn"]'),
+        stderr: panelEl.querySelector('[data-count="stderr"]'),
+      },
+      counts: { error: 0, warn: 0, stderr: 0 },
       buffer: [],
       lineSeq: 0,
       paused: false,
@@ -1625,6 +1854,8 @@
     panelEl.querySelector('[data-act="clear"]').addEventListener('click', () => {
       entry.buffer = [];
       entry.lineSeq = 0;
+      entry.counts = { error: 0, warn: 0, stderr: 0 };
+      syncLogLevelCounts(entry);
       entry.logViewEl.innerHTML = '';
       entry.matchCountEl.textContent = '';
     });
@@ -1654,6 +1885,7 @@
 
     incWatch(containerId);
     assignSessionToPane(sessionId, state.focusedPaneId);
+    setActiveView('workspace');
     renderLayout();
     renderCrates();
   }
@@ -1670,6 +1902,13 @@
     renderCrates();
   }
 
+  function syncLogLevelCounts(entry) {
+    if (!entry.countEls) return;
+    entry.countEls.error.textContent = entry.counts.error > 0 ? String(entry.counts.error) : '';
+    entry.countEls.warn.textContent = entry.counts.warn > 0 ? String(entry.counts.warn) : '';
+    entry.countEls.stderr.textContent = entry.counts.stderr > 0 ? String(entry.counts.stderr) : '';
+  }
+
   socket.on('log:line', (line) => {
     state.panels.forEach((entry, sessionId) => {
       if (entry.type !== 'log' || entry.containerId !== line.containerId) return;
@@ -1680,7 +1919,17 @@
         level: detectLevel(line.text, line.stream),
       };
       entry.buffer.push(enriched);
-      if (entry.buffer.length > MAX_LINES) entry.buffer.shift();
+      if (enriched.level === 'error') entry.counts.error++;
+      if (enriched.level === 'warn') entry.counts.warn++;
+      if (enriched.stream === 'stderr') entry.counts.stderr++;
+
+      if (entry.buffer.length > MAX_LINES) {
+        const dropped = entry.buffer.shift();
+        if (dropped.level === 'error') entry.counts.error = Math.max(0, entry.counts.error - 1);
+        if (dropped.level === 'warn') entry.counts.warn = Math.max(0, entry.counts.warn - 1);
+        if (dropped.stream === 'stderr') entry.counts.stderr = Math.max(0, entry.counts.stderr - 1);
+      }
+      syncLogLevelCounts(entry);
 
       if (entry.paused) {
         entry.pausedMissed++;
@@ -1795,7 +2044,15 @@
       <span class="log-line__num">${line.num || ''}</span>
       <span class="log-line__ts">${escapeHtml(time)}</span>
       <span class="log-line__text">${renderAnsiAndHighlight(line.text, entry.filterText, entry.useRegex)}</span>
+      <button class="log-line__copy" type="button" title="Copiar linha">${ICON.copy}</button>
     `;
+    el.querySelector('.log-line__copy').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(line.cleanText || stripAnsi(line.text));
+        showToast('Linha copiada.', 'success');
+      } catch (_) {}
+    });
     return el;
   }
 
@@ -1915,6 +2172,7 @@
     socket.emit('term:open', { containerId, sessionId });
 
     assignSessionToPane(sessionId, state.focusedPaneId);
+    setActiveView('workspace');
     renderLayout();
     try { fitAddon.fit(); } catch (_) {}
     renderCrates();
@@ -2033,6 +2291,7 @@
     });
 
     assignSessionToPane(sessionId, state.focusedPaneId);
+    setActiveView('workspace');
     renderLayout();
     renderCrates();
     fetchAndRenderInspect(sessionId);
@@ -2057,11 +2316,14 @@
     const d = entry.details;
     const st = state.stats.get(entry.containerId);
 
-    const cpuText = st ? `${st.cpuPercent.toFixed(1)}%` : (d.state.running ? '0.0%' : 'Parado');
+    const cpuPct = st ? st.cpuPercent : 0;
+    const memPct = st ? st.memPercent : 0;
+    const cpuText = st ? `${cpuPct.toFixed(1)}%` : (d.state.running ? '0.0%' : 'Parado');
     const memText = st ? `${formatBytes(st.memUsage)} / ${formatBytes(st.memLimit)}` : '—';
-    const memPctText = st ? `${st.memPercent.toFixed(1)}% utilizado` : 'Container inativo';
+    const memPctText = st ? `${memPct.toFixed(1)}% utilizado` : 'Container inativo';
     const netText = st ? `↓ ${formatBytes(st.netRx)} · ↑ ${formatBytes(st.netTx)}` : '—';
     const pidsText = st ? `${st.pids} processos` : `PID ${d.state.pid || '—'}`;
+    const fullCmd = [...(d.entrypoint || []), ...(d.cmd || [])].join(' ') || '—';
 
     const portsRows = d.ports.length
       ? d.ports.map((p) => {
@@ -2076,8 +2338,8 @@
 
     const mountsRows = d.mounts.length
       ? d.mounts.map((m) => `
-          <div class="kv-key">${escapeHtml(m.type.toUpperCase())} (${m.rw ? 'RW' : 'RO'})</div>
-          <div class="kv-val">${escapeHtml(m.source)} <span style="color:var(--accent-brand)">→</span> ${escapeHtml(m.destination)}</div>
+          <div class="kv-key">${escapeHtml(m.type.toUpperCase())} <span class="mount-badge${m.rw ? '' : ' mount-badge--ro'}">${m.rw ? 'RW' : 'RO'}</span></div>
+          <div class="kv-val">${escapeHtml(m.source)} <span style="color:var(--accent-brand-hi)">→</span> ${escapeHtml(m.destination)}</div>
         `).join('')
       : '<div class="kv-key">Volumes</div><div class="kv-val">Nenhum volume ou bind mount</div>';
 
@@ -2088,14 +2350,15 @@
         `).join('')
       : '<div class="kv-key">Rede</div><div class="kv-val">Sem rede anexada</div>';
 
+    const hasSecrets = d.env.some((e) => isSecretKey(e.key));
     const envHtml = d.env.length
       ? d.env.map((e) => {
           const secret = isSecretKey(e.key);
           return `
             <div class="env-row" data-env-key="${escapeHtml(e.key.toLowerCase())}">
               <span class="env-row__key" title="${escapeHtml(e.key)}">${escapeHtml(e.key)}</span>
-              <span class="env-row__val${secret ? ' is-secret' : ''}" title="${secret ? 'Clique para revelar/ocultar valor sensível' : ''}">${escapeHtml(e.value)}</span>
-              <button class="icon-btn icon-btn--xs" data-copy-env="${escapeHtml(e.key + '=' + e.value)}" title="Copiar variável">${ICON.copy}</button>
+              <span class="env-row__val${secret ? ' is-secret' : ''}" data-originally-secret="${secret ? '1' : '0'}" title="${secret ? 'Clique para revelar/ocultar valor sensível' : ''}">${escapeHtml(e.value)}</span>
+              <button class="icon-btn icon-btn--xs" data-copy-text="${escapeHtml(e.key + '=' + e.value)}" title="Copiar variável">${ICON.copy}</button>
             </div>
           `;
         }).join('')
@@ -2106,11 +2369,17 @@
         <div class="metric-card">
           <span class="metric-card__label">Uso de CPU</span>
           <span class="metric-card__value" data-ins="cpu">${cpuText}</span>
+          <div class="metric-card__bar">
+            <div class="metric-card__bar-fill ${cpuPct > 85 ? 'is-crit' : cpuPct > 60 ? 'is-high' : ''}" data-ins="cpu-bar" style="width:${Math.min(100, cpuPct)}%"></div>
+          </div>
           <span class="metric-card__sub">Status: ${escapeHtml(d.state.status.toUpperCase())}</span>
         </div>
         <div class="metric-card">
           <span class="metric-card__label">Memória RAM</span>
           <span class="metric-card__value" data-ins="mem">${memText}</span>
+          <div class="metric-card__bar">
+            <div class="metric-card__bar-fill metric-card__bar-fill--mem ${memPct > 85 ? 'is-crit' : memPct > 65 ? 'is-high' : ''}" data-ins="mem-bar" style="width:${Math.min(100, memPct)}%"></div>
+          </div>
           <span class="metric-card__sub" data-ins="mem-pct">${memPctText}</span>
         </div>
         <div class="metric-card">
@@ -2132,9 +2401,12 @@
         </div>
         <div class="inspect-section__body">
           <div class="kv-grid">
-            <div class="kv-key">ID Completo</div><div class="kv-val">${escapeHtml(d.id)}</div>
-            <div class="kv-key">Imagem</div><div class="kv-val">${escapeHtml(d.image)} (${escapeHtml(d.imageId)})</div>
-            <div class="kv-key">Comando</div><div class="kv-val">${escapeHtml([...(d.entrypoint || []), ...(d.cmd || [])].join(' ') || '—')}</div>
+            <div class="kv-key">ID Completo</div>
+            <div class="kv-val"><span>${escapeHtml(d.id)}</span><button class="icon-btn icon-btn--xs" data-copy-text="${escapeHtml(d.id)}" title="Copiar ID">${ICON.copy}</button></div>
+            <div class="kv-key">Imagem</div>
+            <div class="kv-val"><span>${escapeHtml(d.image)} (${escapeHtml(d.imageId)})</span><button class="icon-btn icon-btn--xs" data-copy-text="${escapeHtml(d.image)}" title="Copiar imagem">${ICON.copy}</button></div>
+            <div class="kv-key">Comando</div>
+            <div class="kv-val"><span>${escapeHtml(fullCmd)}</span>${fullCmd !== '—' ? `<button class="icon-btn icon-btn--xs" data-copy-text="${escapeHtml(fullCmd)}" title="Copiar comando">${ICON.copy}</button>` : ''}</div>
             <div class="kv-key">Diretório (Workdir)</div><div class="kv-val">${escapeHtml(d.workingDir)}</div>
             <div class="kv-key">Iniciado em</div><div class="kv-val">${escapeHtml(d.state.startedAt || '—')}</div>
             ${d.compose.project ? `<div class="kv-key">Docker Compose</div><div class="kv-val">Projeto: <strong>${escapeHtml(d.compose.project)}</strong> · Serviço: <strong>${escapeHtml(d.compose.service || '—')}</strong></div>` : ''}
@@ -2168,7 +2440,10 @@
       <div class="inspect-section">
         <div class="inspect-section__head">
           <h4>Variáveis de Ambiente (${d.env.length})</h4>
-          <input type="text" class="panel__filter" data-role="env-filter" placeholder="Filtrar variáveis…" style="width:180px;padding:4px 10px;" />
+          <div class="inspect-section__head-tools">
+            ${hasSecrets ? `<button class="btn btn--sm" data-role="toggle-secrets" type="button">${ICON.eye} Revelar segredos</button>` : ''}
+            <input type="text" class="panel__filter" data-role="env-filter" placeholder="Filtrar variáveis…" style="width:180px;padding:4px 10px;" />
+          </div>
         </div>
         <div class="inspect-section__body">
           <div class="env-list">
@@ -2179,14 +2454,26 @@
     `;
 
     // Wire secret reveal & copy buttons
-    body.querySelectorAll('.env-row__val.is-secret').forEach((el) => {
+    body.querySelectorAll('.env-row__val[data-originally-secret="1"]').forEach((el) => {
       el.addEventListener('click', () => el.classList.toggle('is-secret'));
     });
-    body.querySelectorAll('[data-copy-env]').forEach((btn) => {
+    const toggleSecretsBtn = body.querySelector('[data-role="toggle-secrets"]');
+    if (toggleSecretsBtn) {
+      let revealed = false;
+      toggleSecretsBtn.addEventListener('click', () => {
+        revealed = !revealed;
+        body.querySelectorAll('.env-row__val[data-originally-secret="1"]').forEach((el) => {
+          el.classList.toggle('is-secret', !revealed);
+        });
+        toggleSecretsBtn.classList.toggle('btn--active', revealed);
+        toggleSecretsBtn.innerHTML = `${ICON.eye} ${revealed ? 'Ocultar segredos' : 'Revelar segredos'}`;
+      });
+    }
+    body.querySelectorAll('[data-copy-text]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         try {
-          await navigator.clipboard.writeText(btn.dataset.copyEnv);
-          showToast('Variável copiada.', 'success');
+          await navigator.clipboard.writeText(btn.dataset.copyText);
+          showToast('Copiado para a área de transferência.', 'success');
         } catch (_) {}
       });
     });
@@ -2207,13 +2494,23 @@
       const st = state.stats.get(id);
       if (!st) return;
       const cpuEl = grid.querySelector('[data-ins="cpu"]');
+      const cpuBar = grid.querySelector('[data-ins="cpu-bar"]');
       const memEl = grid.querySelector('[data-ins="mem"]');
+      const memBar = grid.querySelector('[data-ins="mem-bar"]');
       const memPctEl = grid.querySelector('[data-ins="mem-pct"]');
       const netEl = grid.querySelector('[data-ins="net"]');
       const pidsEl = grid.querySelector('[data-ins="pids"]');
 
       if (cpuEl) cpuEl.textContent = `${st.cpuPercent.toFixed(1)}%`;
+      if (cpuBar) {
+        cpuBar.style.width = `${Math.min(100, st.cpuPercent)}%`;
+        cpuBar.className = `metric-card__bar-fill ${st.cpuPercent > 85 ? 'is-crit' : st.cpuPercent > 60 ? 'is-high' : ''}`;
+      }
       if (memEl) memEl.textContent = `${formatBytes(st.memUsage)} / ${formatBytes(st.memLimit)}`;
+      if (memBar) {
+        memBar.style.width = `${Math.min(100, st.memPercent)}%`;
+        memBar.className = `metric-card__bar-fill metric-card__bar-fill--mem ${st.memPercent > 85 ? 'is-crit' : st.memPercent > 65 ? 'is-high' : ''}`;
+      }
       if (memPctEl) memPctEl.textContent = `${st.memPercent.toFixed(1)}% utilizado`;
       if (netEl) netEl.textContent = `↓ ${formatBytes(st.netRx)} · ↑ ${formatBytes(st.netTx)}`;
       if (pidsEl) pidsEl.textContent = `${st.pids} processos`;
